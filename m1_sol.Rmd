@@ -1,0 +1,199 @@
+---
+title: "MIE237 Term Test 1 Solutions"
+date: "2016-02-09"
+output: pdf_document
+---
+\newcounter{qnum}
+\setcounter{qnum}{0}
+\newcommand{\question}{\refstepcounter{qnum}\arabic{qnum}.}
+
+
+
+```{r, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rio)
+library(ggplot2)
+library(knitr)
+source("print_obscure.R")
+```
+
+\textbf{Examination Type B; Calculator Type 2 Permitted}
+
+\textbf{50 Minutes; 40 Marks Available}
+
+```{r, echo=FALSE}
+n <- 102
+
+brands <- c("Camtran", "Nema", "Moloney")
+sizes <- c("100KVA", "75KVA", "50KVA")
+combos <- expand.grid(brands, sizes)
+
+set.seed(2)
+probs <- sample(3:7, 9, TRUE)/9*102
+b_s <- combos[sample(1:9, n, prob=probs, replace = TRUE),]
+age <- numeric(n)
+age[b_s$Var2 == "100KVA"] <- rweibull(sum(b_s$Var2 == "100KVA"),
+                                      1.4, 25)
+age[b_s$Var2 == "75KVA"] <- rweibull(sum(b_s$Var2 == "75KVA"),
+                                      1.6, 30)
+age[b_s$Var2 == "50KVA"] <- rweibull(sum(b_s$Var2 == "75KVA"),
+                                      1.8, 35)
+
+ID <- replicate(n, paste(c(sample(LETTERS, 2), 
+                           sample(0:9, 4, repl=TRUE)), collapse=""))
+
+
+tx <- data_frame(ID = ID, Manufacturer = b_s$Var1, Size = b_s$Var2,
+                 Age = age)
+
+```
+
+
+An electricity distribution company (a company that delivers electricity to homes and businesses) has accumulated a dataset related to `r n` failed small transformers and wants to analyse some aspects of the data. Here are the first `r (rows <- 10)` rows of the dataset:
+
+```{r, echo=FALSE}
+kable(head(tx, rows), digits = 1)
+```
+
+The dataset has `r ncol(tx)` variables: ``r paste(colnames(tx), collapse=", ")``. The  variable ``r colnames(tx)[1]`` contains the serial number of the transformer. The variable ``r colnames(tx)[2]`` contains the manufacturer name, one of: ``r paste(brands, collapse=", ")``. The variable ``r colnames(tx)[3]`` contains a description of the transformer's power rating. The variable ``r colnames(tx)[4]`` contains the age in years of the transformer at the time of its failure. 
+
+\pagebreak 
+
+\question{} **(15 marks total)** Here is a table of summary statistics with the count, mean age, and standard deviation of age broken down by manufacturer, followed by a normal quantile plot of the ages for each manufacturer.
+
+```{r, echo=FALSE, fig.height=2.5, fig.align="center"}
+tx %>% 
+  group_by(Manufacturer) %>% 
+  summarise(Count=n(), "Mean Age"=mean(Age), "SD Age"=sd(Age)) %>% 
+  kable(digits=2)
+
+tx %>% 
+  ggplot(aes(sample=Age)) + stat_qq() + facet_grid(. ~ Manufacturer, scales="free") + theme_bw()
+```
+
+Produce a 95% confidence interval for the difference in mean age at failure between ``r brands[1]`` and ``r brands[3]`` transformers, commenting on any relevant assumptions you might have needed to make.
+
+```{r, echo=FALSE}
+tx %>% 
+  filter(Manufacturer %in% brands[c(1,3)]) %>% 
+  t.test(Age ~ Manufacturer, data = ., var.equal = TRUE) -> tx_t.test
+tx_t.test
+```
+
+The pooled variance is `r (20.90653^2*22 + 16.81865^2*32)/(54)`.
+
+Both normal quantile plots indicate non-normal data, but the sample sizes are large enough so that it shouldn't cause problems with the confidence interval. The standard deviations are well within the 3:1 guideline for the equal variance assumption.
+
+\question{} **(10 marks total)** The company wants to look at the `Manufacturer` and `Size` variables. Here is a summary table with counts by these two variables, followed by `R` output for the $\chi^2$ test of independence with some values removed (replaced with `MISSING`).
+
+```{r, echo=FALSE, results='asis', message=FALSE}
+library(xtable)
+size_man <- with(tx, addmargins(table(Manufacturer, Size)))
+size_man_xt <- xtable(size_man, align="r|rrr|r", digits = 0)
+print.xtable(size_man_xt, hline.after = c(-1,0,3), comment=FALSE)
+```
+
+```{r, echo=FALSE}
+chi2 <- chisq.test(tx$Size, tx$Manufacturer)
+chi2$parameter <- c(df = "MISSING")
+chi2$p.value <- "MISSING"
+print_obscure(chi2)
+```
+
+a. **(3 marks)** Produce a 95% confidence interval for the proportion of transformers that are manufactured by Nema, commenting on any relevant assumptions you might have needed to make.
+
+```{r, echo=FALSE}
+library(binom)
+binom.asymp(size_man["Nema", "Sum"], size_man["Sum", "Sum"])
+```
+
+
+b. **(2 marks)** Compute the "expected cell count" for the top left cell (corresponding to `Camtran` and `100KVA`).
+
+Here is the full table:
+
+```{r}
+chisq.test(tx$Manufacturer, tx$Size)$expected
+```
+
+c. **(2 marks)** How many out of the 9 expected cell counts would you need to calculate using multiplication and division of marginal totals before you can simply use addition and subtraction to produce the rest?
+
+4: the degrees of freedom $(r-1)(c-1)$.
+
+d. **(3 marks)** Perform the test of independence with null hypothesis (informally) expressed as: $H_0:$ `Manufacturer` and `Size` are independent, commenting on any relevant assumptions you might have needed to make.
+
+```{r}
+chisq.test(tx$Size, tx$Manufacturer)
+```
+
+The expected cell counts all exceed 5, so the p-value is accurate.
+
+\question{} **(10 marks total)** The company happens to still have all the `Moloney` transformers in storage and decides to do some electrical testing on two of the "windings" (essentially, a wire wound around a metal core---the details don't matter) in each of these transformers. Let's call the windings `A` and `B` within each unit. A current is passed through each winding and the amount of heat generated is measured. (If you are a transformer expert and this makes no sense, this is all made up, and please forgive me.)
+
+A summer student working at the company produces the following summaries of the data gathered, consisting of: mean and standard deviation for each of the `A` and `B` winding experiments, and the standard deviation of the unit-by-unit differences between `A` and `B` experiments. 
+
+```{r, echo=FALSE}
+tx %>% 
+  filter(Manufacturer == "Moloney") %>% summarize(n()) %>% unlist -> n_moloney
+tx %>% 
+  filter(Manufacturer == "Moloney") %>% 
+  mutate(A = 150 + rchisq(n_moloney, 2), B = A + rnorm(n_moloney, 1, 3), 
+         "A-B" = A - B) -> tx_AB
+
+tx_AB %>% 
+  summarize("Count" = n(),
+            "A Temp Mean" = mean(A),
+            "A Temp SD" = sd(A),
+            "B Temp Mean" = mean(B),
+            "B Temp SD" = sd(A),
+            "A--B Diff Temp SD" = sd(`A-B`)
+            ) %>% kable(digits=2)
+```
+
+Here are the normal quantile plots for the `A` and `B` winding experiments and also for the `A-B` differences.
+
+```{r, echo=FALSE, fig.height=2.5, message=FALSE}
+library(tidyr)
+tx_AB %>% 
+  gather(Exp, Value, A:`A-B`) %>% 
+  ggplot(aes(sample=Value)) + 
+  stat_qq() + 
+  facet_wrap( ~ Exp, scales="free_y") + theme_bw()
+```
+
+Perform the appropriate hypothesis test to evaluate if there is a difference in temperature between `A` and `B` winding experiments.
+
+```{r}
+t.test(tx_AB$`A-B`)
+```
+
+\pagebreak
+
+\question{} **(5 marks total)** Consider the simple linear regression model $y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$ with $\varepsilon_i \sim N(0, \sigma^2)$. The least squares estimators for $\beta_0$ and $\beta_1$ are on the aid sheet---you'll need them here. (In this question for economy of notation I've used lowercase $y$ to refer to "data" and "random variable" interchangeably.)
+
+a. **(1 mark)** Show that the fitted regression line $y = \hat{\beta_0} + \hat{\beta_1}x$ always passes through the point $\left(\overline{x}, \overline{y}\right)$ for any dataset $\{(y_1,x_1),\ldots,(y_n,x_n)\}$.
+
+Plug $\overline x$ into the equation to get: $\hat{\beta_0} + \hat{\beta_1}\overline x =
+\overline y - \hat\beta_1\overline x + \hat{\beta_1}\overline x
+= \overline y$
+
+b. **(2 marks)** Show that $E(\overline{y}) = \beta_0 + \beta_1 \overline{x}$.
+
+$\overline y = \sum(\beta_0 + \beta_1 x_i + \varepsilon_i)/n$ so 
+
+\begin{align*}E(\overline y) &= E\left(\sum(\beta_0 + \beta_1 x_i + \varepsilon_i)/n\right)\\
+&= \sum(\beta_0 + \beta_1 x_i + E(\varepsilon_i))/n\\
+&= \sum(\beta_0 + \beta_1 x_i)/n\\
+&= \beta_0 + \beta_1 \overline x
+\end{align*}
+
+c. **(2 marks)** Show that $E(\hat{\beta_1}) = \beta_1$.
+
+\begin{align*}
+E\left(\hat\beta_1\right) &= E\left(\frac{S_{xy}}{S_{xx}}\right)\\
+&=E\left(\frac{\sum(y_i - \overline y)(x_i - \overline x)}{S_{xx}}\right)\\
+&=\frac{\sum(E(y_i) - E(\overline y))(x_i - \overline x)}{S_{xx}}\\
+&=\frac{\sum((\beta_0 + \beta_1 x_i)) - (\beta_0 + \beta_1 \overline x)(x_i - \overline x)}{S_{xx}}\\
+&=\beta_1\frac{\sum(x_i - \overline x)(x_i - \overline x)}{S_{xx}}\\
+&=\beta_1
+\end{align*}
